@@ -35,11 +35,20 @@
 		};
 	};
 
+	pwmleds {
+		compatible = "pwm-leds";
+
+		pwm_led0: pwm_led_0 {
+			pwms = <&tcc2 1>;
+		};
+	};
+
 	/* These aliases are provided for compatibility with samples */
 	aliases {
 		led0 = &led;
 		led1 = &rx_led;
 		led2 = &tx_led;
+		pwm-led0 = &pwm_led0;
 	};
 };
 
@@ -62,6 +71,15 @@
 	dopo = <1>;
 	#address-cells = <1>;
 	#size-cells = <0>;
+};
+
+&tcc2 {
+	status = "okay";
+	compatible = "atmel,sam0-tcc-pwm";
+	/* Gives a maximum period of 1.4 s */
+	prescaler = <1024>;
+
+	#pwm-cells = <1>;
 };
 
 &usb0 {
