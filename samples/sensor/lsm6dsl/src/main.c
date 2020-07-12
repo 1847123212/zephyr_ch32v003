@@ -95,12 +95,21 @@ static void lsm6dsl_trigger_handler(struct device *dev,
 }
 #endif
 
+#if DT_HAS_COMPAT_STATUS_OKAY(st_lsm6dsl)
+#define DT_COMPAT st_lsm6dsl
+#elif DT_HAS_COMPAT_STATUS_OKAY(st_lsm6ds3)
+#define DT_COMPAT st_lsm6ds3
+#else
+#error No lsm6dsl or lsm6ds3 sensors found
+#endif
+
 void main(void)
 {
 	int cnt = 0;
 	char out_str[64];
 	struct sensor_value odr_attr;
-	struct device *lsm6dsl_dev = device_get_binding(DT_LABEL(DT_INST(0, st_lsm6dsl)));
+	struct device *lsm6dsl_dev =
+	    device_get_binding(DT_LABEL(DT_INST(0, DT_COMPAT)));
 
 	if (lsm6dsl_dev == NULL) {
 		printk("Could not get LSM6DSL device\n");

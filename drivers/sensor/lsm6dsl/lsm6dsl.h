@@ -122,6 +122,7 @@
 
 #define LSM6DSL_REG_WHO_AM_I				0x0F
 #define LSM6DSL_VAL_WHO_AM_I				0x6A
+#define LSM6DS3_VAL_WHO_AM_I				0x69
 
 #define LSM6DSL_REG_CTRL1_XL				0x10
 #define LSM6DSL_MASK_CTRL1_XL_ODR_XL			(BIT(7) | BIT(6) | \
@@ -606,6 +607,7 @@
 
 struct lsm6dsl_config {
 	const char *comm_master_dev_name;
+	uint8_t wai;
 	int (*comm_init)(struct device *dev);
 	union {
 		struct {
