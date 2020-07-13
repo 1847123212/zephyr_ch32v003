@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define LOG_LEVEL CONFIG_WIFI_LOG_LEVEL
+#include <logging/log.h>
+LOG_MODULE_REGISTER(main);
+
 #if !defined(__ZEPHYR__) || defined(CONFIG_POSIX_API)
 
 #include <netinet/in.h>
@@ -26,6 +30,9 @@
 #endif
 
 #endif
+
+#include <net/net_if.h>
+#include <net/wifi_mgmt.h>
 
 /* HTTP server to connect to */
 #define HTTP_HOST "google.com"
@@ -60,6 +67,29 @@ void main(void)
 	static struct addrinfo hints;
 	struct addrinfo *res;
 	int st, sock;
+
+        printk("main 1\n");
+
+	struct net_if *iface = net_if_get_default();
+
+        printk("main\n");
+
+        k_msleep(1000);
+
+        static struct wifi_connect_req_params connect_params = {
+          .ssid = "Fancy Pants",
+          .ssid_length = 11,
+          .psk = "Ch8314190970",
+          .psk_length = 12,
+          .security = WIFI_SECURITY_TYPE_PSK,
+        };
+
+        LOG_INF("connect");
+	net_mgmt(NET_REQUEST_WIFI_CONNECT, iface,
+                 &connect_params, sizeof(connect_params));
+
+        k_msleep(8000);
+        LOG_INF("connected?");
 
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
 	tls_credential_add(CA_CERTIFICATE_TAG, TLS_CREDENTIAL_CA_CERTIFICATE,

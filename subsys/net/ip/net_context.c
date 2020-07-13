@@ -606,11 +606,13 @@ int net_context_bind(struct net_context *context, const struct sockaddr *addr,
 			ptr = &maddr->address.in_addr;
 
 		} else if (addr4->sin_addr.s_addr == INADDR_ANY) {
+                  LOG_INF("any");
 			iface = net_if_ipv4_select_src_iface(
 				&net_sin(&context->remote)->sin_addr);
 
 			ptr = (struct in_addr *)net_ipv4_unspecified_address();
 		} else {
+                  LOG_INF("fixed");
 			ifaddr = net_if_ipv4_addr_lookup(&addr4->sin_addr,
 							 &iface);
 			if (!ifaddr) {

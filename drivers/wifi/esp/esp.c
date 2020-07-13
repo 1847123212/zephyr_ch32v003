@@ -783,6 +783,8 @@ static void esp_iface_init(struct net_if *iface)
 	data->net_iface = iface;
 	esp_offload_init(iface);
 	esp_reset(data);
+
+        LOG_INF("esp_iface_init: done");
 }
 
 static const struct net_wifi_mgmt_offload esp_api = {

@@ -2649,6 +2649,8 @@ struct net_if *net_if_ipv4_select_src_iface(const struct in_addr *dst)
 	Z_STRUCT_SECTION_FOREACH(net_if, iface) {
 		bool ret;
 
+                LOG_INF("select %p", iface);
+
 		ret = net_if_ipv4_addr_mask_cmp(iface, dst);
 		if (ret) {
 			return iface;

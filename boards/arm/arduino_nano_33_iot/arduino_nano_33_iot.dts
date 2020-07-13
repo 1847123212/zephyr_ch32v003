@@ -66,13 +66,13 @@
 	cs-gpios = <&porta 14 GPIO_ACTIVE_LOW>;
 
 	nina_w102@0 {
-		compatible = "u-blox,nina-w102";
+		compatible = "u-blox,nina";
 		reg = <0>;
 		label = "NINA_W102";
-		spi-max-frequency = <8000000>;
-		ack-gpios = <&porta 28 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
-		wifi-reset-gpios = <&porta 8 GPIO_ACTIVE_LOW>;
-		available-gpios = <&porta 27 GPIO_PULL_DOWN>;
+		spi-max-frequency = <1000000>;
+		ready-gpios = <&porta 28 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		reset-gpios = <&porta 8 GPIO_ACTIVE_LOW>;
+		irq-gpios = <&porta 27 GPIO_PULL_DOWN>;
 	};
 };
 
@@ -113,7 +113,7 @@
 &sercom5 {
 	status = "okay";
 	compatible = "atmel,sam0-uart";
-	current-speed = <115200>;
+	current-speed = <1000000>;
 	rxpo = <3>;
 	txpo = <1>;
 };
