@@ -32,7 +32,7 @@ LOG_MODULE_REGISTER(wifi_nina);
 
 #include "nina_private.h"
 
-K_THREAD_STACK_DEFINE(nina_workq_stack, 1024);
+K_THREAD_STACK_DEFINE(nina_workq_stack, 2048);
 
 #define NINA_MAX_SOCKETS 10
 #define NINA_INIT_TIMEOUT K_MSEC(2000)
@@ -46,9 +46,9 @@ enum nina_socket_flags {
 #define NINA_NUM_SOCKETS 4
 
 struct nina_socket {
-        struct nina_data *data;
-        uint8_t link_id;
-        bool connected;
+	struct nina_data *data;
+	uint8_t link_id;
+	bool connected;
 
 	/* socket info */
 	sa_family_t family;
@@ -74,7 +74,8 @@ struct nina_socket {
 	struct k_work recv_work;
 };
 
-K_MEM_SLAB_DEFINE(nina_sockets, sizeof(struct nina_socket), NINA_NUM_SOCKETS, 2);
+K_MEM_SLAB_DEFINE(nina_sockets, sizeof(struct nina_socket), NINA_NUM_SOCKETS,
+		  4);
 
 struct nina_data {
 	struct spi_config spi_config;
@@ -100,7 +101,7 @@ struct nina_data {
 	struct k_sem sem_if_up;
 	uint8_t status;
 
-        struct nina_socket *slots[NINA_NUM_SOCKETS];
+	struct nina_socket *slots[NINA_NUM_SOCKETS];
 };
 
 static struct nina_data nina_data_0;
@@ -150,6 +151,7 @@ static int nina_wait(struct nina_data *n)
 		if (ret == 0) {
 			return 0;
 		}
+		k_msleep(1);
 	}
 	LOG_INF("timed out");
 	return -ETIMEDOUT;
@@ -203,6 +205,7 @@ static int nina_rx(struct nina_data *n, const uint8_t *buf, uintptr_t len,
 	if (err < 0) {
 		return err;
 	}
+	LOG_HEXDUMP_INF(buf, len, "nina_rx");
 
 	return 0;
 }
@@ -210,6 +213,8 @@ static int nina_rx(struct nina_data *n, const uint8_t *buf, uintptr_t len,
 static int nina_sendrecv(struct nina_data *n, const uint8_t *req, uintptr_t len)
 {
 	LOG_INF("nina_sendrecv len=%d", (int)len);
+	LOG_HEXDUMP_INF(req, len, "cmd");
+
 	int err;
 
 	err = nina_wait(n);
@@ -240,7 +245,6 @@ static int nina_sendrecv(struct nina_data *n, const uint8_t *req, uintptr_t len)
 	if (err != 0) {
 		return err;
 	}
-	LOG_INF("rx[..] = %x %x %x", rx[0], rx[1], rx[2]);
 	if (rx[0] != NINA_CMD_START) {
 		LOG_INF("got %x, want NINA_CMD_START", rx[0]);
 		return -EINVAL;
@@ -259,11 +263,14 @@ static int nina_param(struct nina_data *n, uint8_t *buf, uintptr_t cap,
 	uint8_t len;
 	int res;
 
+	LOG_INF("nina_param cap=%d", (int)cap);
+
 	res = nina_rx(n, &len, sizeof(len), false);
 	if (res < 0) {
 		return res;
 	}
-	if (len >= cap) {
+	LOG_INF("len=%d", len);
+	if (len > cap) {
 		return -ENOMEM;
 	}
 	res = nina_rx(n, buf, len, final);
@@ -320,19 +327,352 @@ static int nina_fw_version(struct nina_data *n, char *ver, uintptr_t len)
 	return 0;
 }
 
+static uint8_t *nina_start_cmd(uint8_t *p, enum nina_cmd cmd, uint8_t nargs)
+{
+	*p++ = NINA_CMD_START;
+	*p++ = cmd;
+	*p++ = nargs;
+
+	return p;
+}
+
+static uint8_t *nina_add_arg_u32(uint8_t *p, uint32_t value)
+{
+	*p++ = 4;
+	UNALIGNED_PUT(value, (uint32_t *)p);
+
+	return p + 4;
+}
+
+static uint8_t *nina_add_arg_u16(uint8_t *p, uint16_t value)
+{
+	*p++ = 2;
+	UNALIGNED_PUT(value, (uint16_t *)p);
+
+	return p + 2;
+}
+
+static uint8_t *nina_add_arg_u8(uint8_t *p, uint8_t value)
+{
+	*p++ = 1;
+	*p++ = value;
+
+	return p;
+}
+
+static uintptr_t nina_end_cmd(uint8_t *buf, uint8_t *p)
+{
+	int len;
+
+	*p++ = NINA_CMD_END;
+	len = p - buf;
+
+	while ((len % 4) != 0) {
+		*p++ = 0xaa;
+		len++;
+	}
+
+	return len;
+}
+
+/* ... -> u8 */
+int nina_resp_u8(struct nina_data *data)
+{
+	uint8_t resp = 0;
+	int res;
+
+	res = nina_param(data, &resp, sizeof(resp), true);
+	if (res < 0) {
+		return res;
+	}
+	return resp;
+}
+
+/* ... -> u16 */
+int nina_resp_u16(struct nina_data *data)
+{
+	uint16_t resp = 0;
+	int res;
+
+	res = nina_param(data, &resp, sizeof(resp), true);
+	if (res < 0) {
+		return res;
+	}
+	return resp;
+}
+
+/* void -> u8 */
+static int nina_cmd_vu8(struct nina_data *data, enum nina_cmd cmd)
+{
+	uint8_t req[] = {
+		NINA_CMD_START,
+		cmd,
+		0,
+		NINA_CMD_END,
+	};
+	int res;
+
+	res = nina_sendrecv(data, req, sizeof(req));
+	if (res < 0) {
+		return res;
+	}
+	if (res != 1) {
+		return -EINVAL;
+	}
+	return nina_resp_u8(data);
+}
+
+static int nina_get_socket(struct nina_data *data)
+{
+	return nina_cmd_vu8(data, NINA_CMD_GET_SOCKET);
+}
+
+static int nina_start_client(struct nina_socket *sock,
+			     const struct sockaddr *dst_addr)
+{
+	uint8_t req[20];
+	uint8_t *p = req;
+	int res;
+	int len;
+	struct sockaddr_in *addr = (struct sockaddr_in *)dst_addr;
+
+	LOG_WRN("nina_start_client addr=%x",
+		UNALIGNED_GET(&addr->sin_addr.s_addr));
+
+	if (dst_addr->sa_family != PF_INET) {
+		return -ENOTSUP;
+	}
+
+	p = nina_start_cmd(req, NINA_CMD_START_CLIENT_TCP, 4);
+	p = nina_add_arg_u32(p, UNALIGNED_GET(&addr->sin_addr.s_addr));
+	p = nina_add_arg_u16(p, UNALIGNED_GET(&addr->sin_port));
+	p = nina_add_arg_u8(p, sock->link_id);
+	p = nina_add_arg_u8(p, NINA_PROTO_UDP);
+	len = nina_end_cmd(req, p);
+
+	res = nina_sendrecv(sock->data, req, len);
+	if (res < 0) {
+		return res;
+	}
+
+	res = nina_resp_u8(sock->data);
+	if (res != 1) {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int nina_ping(struct nina_socket *sock, const struct sockaddr *dst_addr)
+{
+	uint8_t req[20];
+	uint8_t *p = req;
+	int res;
+	int len;
+	struct sockaddr_in *addr = (struct sockaddr_in *)dst_addr;
+
+	LOG_INF("nina_ping");
+
+	if (dst_addr->sa_family != PF_INET) {
+		return -ENOTSUP;
+	}
+
+	p = nina_start_cmd(req, NINA_CMD_PING, 2);
+	p = nina_add_arg_u32(p, UNALIGNED_GET(&addr->sin_addr.s_addr));
+	p = nina_add_arg_u8(p, 5);
+	len = nina_end_cmd(req, p);
+
+	res = nina_sendrecv(sock->data, req, len);
+	if (res < 0) {
+		return res;
+	}
+
+	res = nina_resp_u16(sock->data);
+	if (res != 1) {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int nina_start_server(struct nina_socket *sock,
+			     const struct sockaddr *dst_addr)
+{
+	uint8_t req[20];
+	uint8_t *p = req;
+	int res;
+	int len;
+	struct sockaddr_in *addr = (struct sockaddr_in *)dst_addr;
+	uint16_t port = UNALIGNED_GET(&addr->sin_port);
+
+	port = 2390;
+
+	LOG_WRN("nina_start_server port=%x", port);
+
+	if (dst_addr->sa_family != PF_INET) {
+		return -ENOTSUP;
+	}
+
+	p = nina_start_cmd(req, NINA_CMD_START_SERVER_TCP, 3);
+	p = nina_add_arg_u16(p, port);
+	p = nina_add_arg_u8(p, sock->link_id);
+	p = nina_add_arg_u8(p, NINA_PROTO_UDP);
+	len = nina_end_cmd(req, p);
+
+	res = nina_sendrecv(sock->data, req, len);
+	if (res < 0) {
+		return res;
+	}
+
+	res = nina_resp_u8(sock->data);
+	if (res != 1) {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int nina_insert_data_buf(struct nina_socket *sock, const uint8_t *buf,
+				uintptr_t len)
+{
+	uint8_t req[130];
+	uint8_t *p = req;
+	int res;
+
+	LOG_WRN("nina_insert_data_buf len=%d", (int)len);
+
+	p = nina_start_cmd(req, NINA_CMD_INSERT_DATA_BUF, 2);
+	UNALIGNED_PUT(1, (uint16_t *)p);
+	p += 2;
+	*p++ = sock->link_id;
+	UNALIGNED_PUT(htons(len), (uint16_t *)p);
+	p += 2;
+	memcpy(p, buf, len);
+	p += len;
+	len = nina_end_cmd(req, p);
+
+	res = nina_sendrecv(sock->data, req, len);
+	if (res < 0) {
+		return res;
+	}
+
+	res = nina_resp_u8(sock->data);
+	if (res < 0) {
+		return res;
+	}
+	/* if (res != 1) { */
+	/*         return -EINVAL; */
+	/* } */
+
+	return 0;
+}
+
+static int nina_send_udp_data(struct nina_socket *sock)
+{
+	uint8_t req[20];
+	uint8_t *p = req;
+	int res;
+	int len;
+
+	LOG_INF("nina_send_udp_data");
+
+	p = nina_start_cmd(req, NINA_CMD_SEND_UDP_DATA, 1);
+	p = nina_add_arg_u8(p, sock->link_id);
+	len = nina_end_cmd(req, p);
+
+	res = nina_sendrecv(sock->data, req, len);
+	if (res < 0) {
+		return res;
+	}
+	if (res != 1) {
+		return -EINVAL;
+	}
+	return nina_resp_u8(sock->data);
+}
+
+static int nina_avail_data_tcp(struct nina_socket *sock)
+{
+	uint8_t req[20];
+	uint8_t *p = req;
+	int res;
+	int len;
+
+	LOG_INF("nina_send_udp_data");
+
+	p = nina_start_cmd(req, NINA_CMD_AVAIL_DATA_TCP, 1);
+	p = nina_add_arg_u8(p, sock->link_id);
+	len = nina_end_cmd(req, p);
+
+	res = nina_sendrecv(sock->data, req, len);
+	if (res < 0) {
+		return res;
+	}
+	if (res != 1) {
+		return -EINVAL;
+	}
+	return nina_resp_u16(sock->data);
+}
+
 static void nina_connect_work(struct k_work *work)
 {
-        LOG_WRN("nina_connect_work");
+	LOG_WRN("nina_connect_work");
 }
 
 static void nina_send_work(struct k_work *work)
 {
-        LOG_WRN("nina_send_work");
+	struct nina_socket *sock =
+		CONTAINER_OF(work, struct nina_socket, send_work);
+	struct net_buf *frag;
+	int res, write_len, pkt_len;
+	int i;
+
+	pkt_len = net_pkt_get_len(sock->tx_pkt);
+
+	LOG_WRN("%p nina_send_work len=%d", sock, pkt_len);
+
+	res = nina_ping(sock, &sock->dst);
+	LOG_INF("ping=%d", res);
+
+	res = nina_start_client(sock, &sock->dst);
+	if (res < 0) {
+		goto error;
+	}
+
+	frag = sock->tx_pkt->frags;
+	while (frag && pkt_len) {
+		write_len = MIN(pkt_len, frag->len);
+
+		res = nina_insert_data_buf(sock, frag->data, write_len);
+		if (res < 0) {
+			goto error;
+		}
+
+		pkt_len -= write_len;
+		frag = frag->frags;
+	}
+
+	res = nina_send_udp_data(sock);
+	if (res < 0) {
+		goto error;
+	}
+
+	net_pkt_unref(sock->tx_pkt);
+	sock->tx_pkt = NULL;
+
+	if (sock->send_cb) {
+		sock->send_cb(sock->context, ret, sock->send_user_data);
+	}
+	return;
+
+error:
+	LOG_ERR("nina_send_work=%d", res);
+	net_pkt_unref(sock->tx_pkt);
+	sock->tx_pkt = NULL;
 }
 
 static void nina_recv_work(struct k_work *work)
 {
-        LOG_WRN("nina_recv_work");
+	LOG_WRN("nina_recv_work");
 }
 
 static void nina_init_work(struct k_work *work)
@@ -380,7 +720,7 @@ static void nina_init_work(struct k_work *work)
 
 	net_if_up(data->net_iface);
 
-        LOG_INF("nina inited");
+	LOG_INF("nina inited");
 	k_sem_give(&data->sem_if_up);
 
 	return;
@@ -462,10 +802,10 @@ static void nina_status_work(struct k_work *work)
 		}
 	}
 
-        if (res != NINA_STATUS_CONNECTED) {
-                k_delayed_work_submit_to_queue(&data->workq, &data->status_work,
-                                               K_SECONDS(1));
-        }
+	if (res != NINA_STATUS_CONNECTED) {
+		k_delayed_work_submit_to_queue(&data->workq, &data->status_work,
+					       K_SECONDS(1));
+	}
 }
 
 static void nina_iface_init(struct net_if *iface)
@@ -474,7 +814,7 @@ static void nina_iface_init(struct net_if *iface)
 
 	struct device *dev = net_if_get_device(iface);
 	struct nina_data *data = dev->driver_data;
-        int res;
+	int res;
 
 	net_if_flag_set(iface, NET_IF_NO_AUTO_START);
 	data->net_iface = iface;
@@ -554,7 +894,6 @@ static int nina_iface_connect(struct device *dev,
 		res = nina_sendrecv_1(data, req, p - req);
 	}
 
-	LOG_INF("res=%d", res);
 	if (res < 0) {
 		return res;
 	}
@@ -599,8 +938,8 @@ static int nina_get(sa_family_t family, enum net_sock_type type,
 		    enum net_ip_protocol ip_proto, struct net_context **context)
 {
 	struct nina_socket *sock;
-        struct nina_data *data = &nina_data_0;
-        int res;
+	struct nina_data *data = &nina_data_0;
+	int res;
 
 	LOG_INF("nina_get");
 
@@ -608,29 +947,29 @@ static int nina_get(sa_family_t family, enum net_sock_type type,
 		return -EAFNOSUPPORT;
 	}
 
-        res = k_mem_slab_alloc(&nina_sockets, (void**)&sock, K_NO_WAIT);
-        if (res != 0) {
-                return res;
-        }
+	res = k_mem_slab_alloc(&nina_sockets, (void **)&sock, K_NO_WAIT);
+	if (res != 0) {
+		return res;
+	}
 
-        uint8_t cmd[] = {
-                NINA_CMD_START,
-                NINA_CMD_GET_SOCKET,
-                0,
-                NINA_CMD_END,
-        };
+	uint8_t cmd[] = {
+		NINA_CMD_START,
+		NINA_CMD_GET_SOCKET,
+		0,
+		NINA_CMD_END,
+	};
 
-        int link_id = nina_sendrecv_1(data, cmd, sizeof(cmd));
-        LOG_INF("link_id=%d", link_id);
+	int link_id = nina_sendrecv_1(data, cmd, sizeof(cmd));
+	LOG_INF("link_id=%d", link_id);
 
-        if (link_id < 0) {
-                return -ENOMEM;
-        }
+	if (link_id < 0) {
+		return -ENOMEM;
+	}
 
-        *sock = (struct nina_socket){
-                .data = data,
-                .link_id = UINT8_MAX,
-        };
+	*sock = (struct nina_socket){
+		.data = data,
+		.link_id = UINT8_MAX,
+	};
 
 	k_work_init(&sock->connect_work, nina_connect_work);
 	k_work_init(&sock->send_work, nina_send_work);
@@ -638,7 +977,7 @@ static int nina_get(sa_family_t family, enum net_sock_type type,
 
 	(*context)->offload_context = sock;
 
-        LOG_INF("nina_get done");
+	LOG_INF("nina_get done");
 	return 0;
 }
 
@@ -647,7 +986,8 @@ static int nina_bind(struct net_context *context, const struct sockaddr *addr,
 {
 	LOG_INF("nina_bind");
 
-        struct nina_socket *sock = 	(struct nina_socket *)context->offload_context;
+	struct nina_socket *sock =
+		(struct nina_socket *)context->offload_context;
 
 	sock->src.sa_family = addr->sa_family;
 
@@ -673,16 +1013,6 @@ static int nina_connect(struct net_context *context,
 			net_context_connect_cb_t cb, int32_t timeout,
 			void *user_data)
 {
-        uint8_t cmd[] = {
-		NINA_CMD_START,
-                NINA_CMD_START_CLIENT_TCP,
-                4,
-                //      (addr),
-                2,
-//                (port),
-//                1, socket,
-//                1, type
-        };
 	LOG_INF("nina_connect");
 	return 0;
 }
@@ -707,29 +1037,36 @@ static int nina_sendto(struct net_pkt *pkt, const struct sockaddr *dst_addr,
 	context = pkt->context;
 	sock = (struct nina_socket *)context->offload_context;
 
-	LOG_DBG("link %d, timeout %d", sock->link_id, timeout);
+	LOG_DBG("%p link %d, timeout %d", sock, sock->link_id, timeout);
 
 	if (sock->tx_pkt) {
 		return -EBUSY;
 	}
 
 	if (sock->type == SOCK_STREAM) {
-                return -ENOTCONN;
+		return -ENOTCONN;
 	} else {
 		if (!sock->connected) {
 			if (!dst_addr) {
 				return -ENOTCONN;
 			}
 
-			/* Use a timeout of 5000 ms here even though the
-			 * timeout parameter might be different. We want to
-			 * have a valid link id before proceeding.
-			 */
-			ret = nina_connect(context, dst_addr, addrlen, NULL,
-					  (5 * MSEC_PER_SEC), NULL);
+			/* Create a UDP socket to the target */
+			ret = nina_get_socket(sock->data);
 			if (ret < 0) {
 				return ret;
 			}
+			LOG_INF("get_socket=%d", ret);
+			sock->link_id = (uint8_t)ret;
+			ret = nina_start_server(sock, dst_addr);
+			if (ret < 0) {
+				return ret;
+			}
+			LOG_INF("addr=%x",
+				UNALIGNED_GET(&((struct sockaddr_in *)dst_addr)
+						       ->sin_addr.s_addr));
+			sock->dst = *dst_addr;
+			LOG_INF("start_server=%d", ret);
 		} else if (dst_addr && memcmp(dst_addr, &sock->dst, addrlen)) {
 			/* This might be unexpected behaviour but the ESP
 			 * doesn't support changing endpoint.
@@ -747,7 +1084,7 @@ static int nina_sendto(struct net_pkt *pkt, const struct sockaddr *dst_addr,
 		return 0;
 	}
 
-        LOG_INF("sendto!!");
+	LOG_INF("sendto!!");
 	/* if (ret == 0) { */
 	/* 	net_pkt_unref(sock->tx_pkt); */
 	/* } else { */
@@ -801,13 +1138,14 @@ static int nina_recv(struct net_context *context, net_context_recv_cb_t cb,
 
 static int nina_put(struct net_context *context)
 {
-	struct nina_socket *sock = (struct nina_socket *)context->offload_context;
+	struct nina_socket *sock =
+		(struct nina_socket *)context->offload_context;
 
 	LOG_INF("nina_put");
 
-        k_mem_slab_free(&nina_sockets, (void**)&sock);
+	k_mem_slab_free(&nina_sockets, (void **)&sock);
 
-        return 0;
+	return 0;
 }
 
 static struct net_offload nina_offload = {
