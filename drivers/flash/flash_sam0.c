@@ -51,7 +51,9 @@ struct flash_sam0_data {
 	off_t offset;
 #endif
 
+#if CONFIG_MULTITHREADING
 	struct k_sem sem;
+#endif
 };
 
 #if CONFIG_FLASH_PAGE_LAYOUT
@@ -74,16 +76,20 @@ static int flash_sam0_write_protection(const struct device *dev, bool enable);
 
 static inline void flash_sam0_sem_take(const struct device *dev)
 {
+#if CONFIG_MULTITHREADING
 	struct flash_sam0_data *ctx = dev->data;
 
 	k_sem_take(&ctx->sem, K_FOREVER);
+#endif
 }
 
 static inline void flash_sam0_sem_give(const struct device *dev)
 {
+#if CONFIG_MULTITHREADING
 	struct flash_sam0_data *ctx = dev->data;
 
 	k_sem_give(&ctx->sem);
+#endif
 }
 
 static int flash_sam0_valid_range(off_t offset, size_t len)
@@ -437,7 +443,9 @@ static int flash_sam0_init(const struct device *dev)
 {
 	struct flash_sam0_data *ctx = dev->data;
 
+#if CONFIG_MULTITHREADING
 	k_sem_init(&ctx->sem, 1, 1);
+#endif
 
 #ifdef PM_APBBMASK_NVMCTRL
 	/* Ensure the clock is on. */
