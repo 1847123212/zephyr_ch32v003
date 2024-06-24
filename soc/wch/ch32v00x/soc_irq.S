@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 /* Copyright (c) 2024 Michael Hope
+=======
+/* Copyright (c) 2024 Google LLC.
+>>>>>>> afa04320c1e (soc: add wch_ch32v003 stubs)
  *
  * SPDX-License-Identifier: Apache-2.0
  */
