@@ -23,12 +23,13 @@
 
 #define STK_CNTIF BIT(0)
 
-#define CYCLES_PER_SEC	sys_clock_hw_cycles_per_sec()
+#define CYCLES_PER_SEC  sys_clock_hw_cycles_per_sec()
 #define CYCLES_PER_TICK (CYCLES_PER_SEC / CONFIG_SYS_CLOCK_TICKS_PER_SEC)
 
 #define SYSTICK ((SysTick_Type *)(DT_INST_REG_ADDR(0)))
 
-struct ch32v00x_systick_device {};
+struct ch32v00x_systick_device {
+};
 
 static volatile uint32_t ch32v00x_systick_count;
 
@@ -38,7 +39,7 @@ static void ch32v00x_systick_irq(const struct ch32v00x_systick_device *unused)
 
 	SYSTICK->SR = 0;
 	ch32v00x_systick_count += CYCLES_PER_TICK; /* Track cycles. */
-	sys_clock_announce(1);			   /* Poke the scheduler. */
+	sys_clock_announce(1);                     /* Poke the scheduler. */
 }
 
 uint32_t sys_clock_cycle_get_32(void)
