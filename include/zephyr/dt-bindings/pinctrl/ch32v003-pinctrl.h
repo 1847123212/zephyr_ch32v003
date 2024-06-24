@@ -8,17 +8,19 @@
 #define __CH32V003_PINCTRL_H__
 
 /* Pin number 0-15 */
-#define CH32V003_PINCTRL_PIN_SHIFT   0
+#define CH32V003_PINCTRL_PIN_SHIFT            0
 /* If set, pin is an output of some type */
-#define CH32V003_PINCTRL_OUTPUT_BIT  3
+#define CH32V003_PINCTRL_OUTPUT_BIT           3
 /* Port number with 0 = PA */
-#define CH32V003_PINCTRL_PORT_SHIFT  4
+#define CH32V003_PINCTRL_PORT_SHIFT           4
 /* Bit number of the first AFIO PCFR1. 0x1F means unset. */
-#define CH32V003_PINCTRL_AFIO0_SHIFT 6
+#define CH32V003_PINCTRL_AFIO0_SHIFT          6
 /* Bit number of the second AFIO PCFR1. 0x1F means unset. */
-#define CH32V003_PINCTRL_AFIO1_SHIFT 11
-#define CH32V003_PINCTRL_AFIO_UNSET  0x1F
+#define CH32V003_PINCTRL_AFIO1_SHIFT          11
+#define CH32V003_PINCTRL_AFIO_UNSET           0x1F
+#define CH32V003_PINCTRL_ANALOGUE_INPUT_SHIFT 16
 
+#define ADC1_A2_PC4        ((4 << 0) | (2 << 4) | (0x1F << 6) | (0x1F << 11) | (1 << 16))
 #define SPI1_NSS_PC1_0     0xffe9
 #define SPI1_CK_PC5_0      0xffed
 #define SPI1_MISO_PC7_0    0xffe7
