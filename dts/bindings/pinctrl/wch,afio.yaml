@@ -1,8 +1,17 @@
+<<<<<<< HEAD
 # Copyright (c) 2024 Michael Hope
 # SPDX-License-Identifier: Apache-2.0
 
 description: |
   The AFIO peripheral is used to configure pin remapping, and EXTI sources.
+=======
+# Copyright (c) 2024 Google LLC.
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  The AFIO peripheral is used to configure pin remapping, EXTI sources and,
+  when available, enable the I/O compensation cell.
+>>>>>>> 531e05f88a0 (drivers: add ch32v00x pinctrl support)
 
 compatible: "wch,afio"
 
