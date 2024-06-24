@@ -89,7 +89,6 @@ static int gpio_ch32v00x_port_toggle_bits(const struct device *dev, uint32_t pin
 {
 	const struct gpio_ch32v00x_config *config = dev->config;
 	uint32_t changed = (config->regs->OUTDR ^ pins) & pins;
-
 	config->regs->BSHR = (changed & pins) | (~changed & pins) << 16;
 
 	return 0;
@@ -107,7 +106,6 @@ static const struct gpio_driver_api gpio_ch32v00x_driver_api = {
 static int gpio_ch32v00x_init(const struct device *dev)
 {
 	const struct gpio_ch32v00x_config *config = dev->config;
-
 	clock_control_on(config->clock_dev, (clock_control_subsys_t *)(uintptr_t)config->clock_id);
 
 	return 0;
@@ -115,7 +113,8 @@ static int gpio_ch32v00x_init(const struct device *dev)
 
 #define GPIO_CH32V00X_INIT(idx)                                                                    \
 	static const struct gpio_ch32v00x_config gpio_ch32v00x_##idx##_config = {                  \
-		.common = {                                                                        \
+		.common =                                                                          \
+			{                                                                          \
 				.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_INST(idx),             \
 			},                                                                         \
 		.regs = (GPIO_TypeDef *)DT_INST_REG_ADDR(idx),                                     \
