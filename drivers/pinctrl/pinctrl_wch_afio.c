@@ -46,7 +46,7 @@ int pinctrl_configure_pins(const pinctrl_soc_pin_t *pins, uint8_t pin_cnt, uintp
 			}
 		}
 		regs->CFGLR = (regs->CFGLR & ~(0x0F << (pin * 4))) | (cfg << (pin * 4));
-
+		//	printk("pin %d %x\n", pin, cfg);
 		if (is_output) {
 			regs->OUTDR |= BIT(pin);
 		} else {
@@ -58,13 +58,13 @@ int pinctrl_configure_pins(const pinctrl_soc_pin_t *pins, uint8_t pin_cnt, uintp
 				regs->BCR = BIT(pin);
 			}
 		}
-
 		if (bit0 != CH32V003_PINCTRL_AFIO_UNSET) {
 			pcfr1 |= BIT(bit0);
 			if (bit1 != CH32V003_PINCTRL_AFIO_UNSET) {
 				pcfr1 |= BIT(bit1);
 			}
 		}
+		AFIO->PCFR1 = pcfr1;
 	}
 
 	return 0;
